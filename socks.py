@@ -89,10 +89,10 @@ class BindThread(threading.Thread):
 
     def run(self):
         try:
-            # Open a listening socket on the specified port
+            # Open a listening socket on an open port
             server_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_s.bind(('0.0.0.0', 0))
-            server_s.settimeout(SOCKS_TIMEOUT)
+            server_s.settimeout(const.SOCKS_TIMEOUT)
             ip, port = server_s.getsockname()
             server_s.listen(1)
 
