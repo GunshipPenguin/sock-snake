@@ -4,32 +4,11 @@ import select
 import sys
 import struct
 import ipaddress
-
-HOST = '0.0.0.0'
-PORT = 12345
-
-BUFSIZE = 4096
-
-BACKLOG = 10
-
-# Timeout (in seconds) for SOCKS CONNECT reuquests after which CD_REQUEST_REJECTED will be returned
-CONNECT_TIMEOUT = 20
-
-# Version in server reply code (Should always be 0)
-VN = 0x00
-
-# Version number specified by clients when connecting (Should always be 4 for SOCKS4a)
-CLIENT_VN = 0x04
-
-REQUEST_TYPE_CONNECT = 0x01
-REQUEST_TYPE_BIND = 0x02
-
-CD_REQUEST_GRANTED = 90
-CD_REQUEST_REJECTED = 91
+import const
 
 def build_socks_reply(cd, dst_port=0x0000, dst_ip='0.0.0.0'):
     dst_ip_bytes = ipaddress.IPv4Address(dst_ip).packed
-    return struct.pack('>BBHL', VN, cd, dst_port, struct.unpack('>L', dst_ip_bytes)[0])
+    return struct.pack('>BBHL', const.SERVER_VN, cd, dst_port, struct.unpack('>L', dst_ip_bytes)[0])
 
 class ClientRequest:
     def __init__(self, data):
@@ -45,12 +24,12 @@ class ClientRequest:
         vn, cd, dst_port, dst_ip = struct.unpack('>BBHL', data[:8])
 
         # Version number
-        if (vn != CLIENT_VN):
+        if (vn != const.CLIENT_VN):
             self.invalid = True
 
         # SOCKS command code (CD)
         self.cd = cd
-        if (self.cd != REQUEST_TYPE_CONNECT and self.cd != REQUEST_TYPE_BIND):
+        if (self.cd != const.REQUEST_CD_CONNECT and self.cd != const.REQUEST_CD_BIND):
             self.invalid = True
 
         # Destination port
@@ -86,7 +65,7 @@ class RelayThread(threading.Thread):
 
             for s in ready:
                 try:
-                    data = s.recv(BUFSIZE)
+                    data = s.recv(const.BUFSIZE)
                 except ConnectionResetError:
                     # Connection reset by either s1 or s2, close sockets and return
                     self._close_sockets()
@@ -113,22 +92,23 @@ class BindThread(threading.Thread):
             # Open a listening socket on the specified port
             server_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_s.bind(('0.0.0.0', 0))
+            server_s.settimeout(SOCKS_TIMEOUT)
             ip, port = server_s.getsockname()
             server_s.listen(1)
 
             # Inform client of open socket
-            self.client_conn.sendall(build_socks_reply(CD_REQUEST_GRANTED, port, ip))
+            self.client_conn.sendall(build_socks_reply(const.RESPONSE_CD_REQUEST_GRANTED, port, ip))
 
             # Wait for the application server to accept the connection
             server_conn, addr = server_s.accept()
         except:
             # Something went wrong, inform the client and return
-            self.client_conn.sendall(build_socks_reply(CD_REQUEST_REJECTED))
+            self.client_conn.sendall(build_socks_reply(const.RESPONSE_CD_REQUEST_REJECTED))
             self.client_conn.close()
             return
 
         # Application server connected, inform client
-        self.client_conn.sendall(build_socks_reply(CD_REQUEST_GRANTED))
+        self.client_conn.sendall(build_socks_reply(const.RESPONSE_CD_REQUEST_GRANTED))
 
         # Relay traffic between client_conn and server_conn
         relayThread = RelayThread(self.client_conn, server_conn)
@@ -136,8 +116,8 @@ class BindThread(threading.Thread):
         relayThread.start()
 
 class SocksProxy:
-    def __init__(self, host, port, bufsize, backlog):
-        self._host = host
+    def __init__(self, port, bufsize, backlog):
+        self._host = '0.0.0.0'
         self._port = port
         self._bufsize = bufsize
         self._backlog = backlog
@@ -168,17 +148,17 @@ class SocksProxy:
 
     def _process_connect_request(self, clientRequest, clientConn):
         serverConn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        serverConn.settimeout(CONNECT_TIMEOUT)
+        serverConn.settimeout(const.SOCKS_TIMEOUT)
 
         try:
             serverConn.connect((clientRequest.dst_ip, clientRequest.dst_port))
         except socket.timeout:
             # Connection to specified host timed out, reject the SOCKS request
             serverConn.close()
-            clientConn.send(build_socks_reply(CD_REQUEST_REJECTED))
+            clientConn.send(build_socks_reply(const.RESPONSE_CD_REQUEST_REJECTED))
             clientConn.close()
 
-        clientConn.send(build_socks_reply(CD_REQUEST_GRANTED))
+        clientConn.send(build_socks_reply(const.RESPONSE_CD_REQUEST_GRANTED))
 
         relayThread = RelayThread(clientConn, serverConn)
         relayThread.daemon = True
@@ -194,15 +174,15 @@ class SocksProxy:
 
         # Handle invalid requests
         if clientRequest.isInvalid():
-            clientConn.send(build_socks_reply(CD_REQUEST_REJECTED))
+            clientConn.send(build_socks_reply(const.RESPONSE_CD_REQUEST_REJECTED))
             clientConn.close()
             return
 
-        if clientRequest.cd == REQUEST_TYPE_CONNECT:
+        if clientRequest.cd == const.REQUEST_CD_CONNECT:
             self._process_connect_request(clientRequest, clientConn)
         else:
             self._process_bind_request(clientRequest, clientConn)
 
 if __name__ == '__main__':
-    proxy = SocksProxy(HOST, PORT, BUFSIZE, BACKLOG)
+    proxy = SocksProxy(const.PORT, const.BUFSIZE, const.BACKLOG)
     proxy.start()
