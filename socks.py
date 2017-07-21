@@ -61,8 +61,44 @@ class ClientRequest:
     def isInvalid(self):
         return self.invalid
 
-class SocksProxy:
+class RelayThread(threading.Thread):
+    def __init__(self, s1, s2):
+        self.s1 = s1
+        self.s2 = s2
+        threading.Thread.__init__(self)
 
+    def _close_sockets(self):
+        self.s1.close()
+        self.s2.close()
+
+    def run(self):
+        while True:
+            ready, _, err = select.select([self.s1, self.s2], [], [self.s1, self.s2])
+
+            # Handle socket errors
+            if err:
+                self._close_sockets()
+                return
+
+            for s in ready:
+                try:
+                    data = s.recv(BUFSIZE)
+                except ConnectionResetError:
+                    # Connection reset by either s1 or s2, close sockets and return
+                    self._close_sockets()
+                    return
+
+                if not data:
+                    # Connection gracefully closed, close sockets and return
+                    self._close_sockets()
+                    return
+
+                if s is self.s1:
+                    self.s2.sendall(data)
+                else:
+                    self.s1.sendall(data)
+
+class SocksProxy:
     def __init__(self, host, port, bufsize, backlog):
         self._host = host
         self._port = port
@@ -110,9 +146,9 @@ class SocksProxy:
 
         clientConn.send(self._build_reply(CD_REQUEST_GRANTED))
 
-        forward = threading.Thread(target=self._forward_connection, args=(clientConn, serverConn))
-        forward.daemon = True
-        forward.start()
+        relayThread = RelayThread(clientConn, serverConn)
+        relayThread.daemon = True
+        relayThread.start()
 
     def _process_bind_request(self, clientRequest, clientConn):
         # TODO: Impelement this
@@ -132,37 +168,6 @@ class SocksProxy:
             self._process_connect_request(clientRequest, clientConn)
         else:
             self._process_bind_request(clientRequest, clientConn)
-
-    def _close_all(self, socks):
-        for s in socks:
-            s.close()
-
-    def _forward_connection(self, src, dest):
-        while True:
-            ready, _, err = select.select([src, dest], [], [src, dest])
-
-            # Handle socket errors
-            if err:
-                _close_all([src, dest])
-                return
-
-            for s in ready:
-                try:
-                    data = s.recv(BUFSIZE)
-                except ConnectionResetError:
-                    # Connection reset by either src or dest, close sockets and return
-                    _close_all([src, dest])
-                    return
-
-                if not data:
-                    # Connection gracefully closed, close sockets and return
-                    _close_all([src, dest])
-                    return
-
-                if s is src:
-                    dest.sendall(data)
-                else:
-                    src.sendall(data)
 
 if __name__ == '__main__':
     proxy = SocksProxy(HOST, PORT, BUFSIZE, BACKLOG)
