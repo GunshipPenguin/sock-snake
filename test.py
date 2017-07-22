@@ -1,6 +1,6 @@
 import unittest
 import threading
-import socks
+import socksnake
 import socket
 import time
 import ipaddress
@@ -65,7 +65,7 @@ class SocksProxyTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Start a SOCKS proxy for testing
-        proxy = socks.SocksProxy(const.PORT, const.BUFSIZE, const.BACKLOG)
+        proxy = socksnake.SocksProxy(const.PORT, const.BUFSIZE, const.BACKLOG)
 
         proxy_server_thread = threading.Thread(target=proxy.start)
         proxy_server_thread.daemon = True
