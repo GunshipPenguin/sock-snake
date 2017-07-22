@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import socket
 import threading
 import select
@@ -254,7 +256,8 @@ class SocksProxy:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='SOCKS4a Proxy Implementation',
-        epilog='Homepage: https://github.com/GunshipPenguin/sock-snake')
+        epilog='Homepage: https://github.com/GunshipPenguin/sock-snake',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument(
         '--port',
