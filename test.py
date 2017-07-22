@@ -31,11 +31,20 @@ def start_mock_server(port, data):
     conn.close()
 
 
-def build_socks4_request(cd, dst_port, dst_ip, user_id):
+def build_socks4_ip_request(cd, dst_port, dst_ip):
     dst_ip_bytes = ipaddress.IPv4Address(dst_ip).packed
     dst_ip_raw = struct.unpack('>L', dst_ip_bytes)[0]
 
     return struct.pack('>BBHLB', 4, cd, dst_port, dst_ip_raw, 0x00)
+
+def build_socks4_dns_request(cd, dst_port, domain):
+    # 0.0.0.1 = invalid IP specifying a dns lookup
+    dst_ip, = struct.unpack('>L', b'\x00\x00\x00\x01')
+
+    request = struct.pack('>BBHLB', 4, cd, dst_port, dst_ip, 0x00)
+    request += domain + b'\x00'
+
+    return request
 
 
 def parse_socks4_reply(data):
@@ -90,8 +99,8 @@ class SocksProxyTestCase(unittest.TestCase):
         request_s.connect(('0.0.0.0', const.PORT))
 
         # Attempt to send a SOCKS CONNECT request to the server
-        socks_request = build_socks4_request(
-            const.REQUEST_CD_CONNECT, 8080, '0.0.0.0', b'')
+        socks_request = build_socks4_ip_request(
+            const.REQUEST_CD_CONNECT, 8080, '0.0.0.0')
         request_s.send(socks_request)
 
         # Get and verify the SOCKS reply
@@ -114,8 +123,8 @@ class SocksProxyTestCase(unittest.TestCase):
 
         # Attempt to send a SOCKS BIND request to the server for a primary
         # connection to 0.0.0.0:8080
-        socks_request = build_socks4_request(
-            const.REQUEST_CD_BIND, 8080, '0.0.0.0', b'')
+        socks_request = build_socks4_ip_request(
+            const.REQUEST_CD_BIND, 8080, '0.0.0.0')
         client_s.send(socks_request)
 
         # Get and verify the SOCKS reply
@@ -154,6 +163,26 @@ class SocksProxyTestCase(unittest.TestCase):
         app_server_s.close()
         client_s.close()
 
+    def test_socks_resolve_dns(self):
+        # Set up a socket and connect to the SOCKS server
+        request_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        request_s.connect(('0.0.0.0', const.PORT))
+
+        # Attempt to send a SOCKS CONNECT request to the server
+        # for google.com:443
+        # I'm working under the assumption here that google.com is always
+        # going to resolve
+        socks_request = build_socks4_dns_request(
+            const.REQUEST_CD_CONNECT, 443, b'google.com')
+        request_s.send(socks_request)
+
+        # Get and verify the SOCKS reply
+        socks_reply = request_s.recv(const.BUFSIZE)
+        vn, cd, _, _ = parse_socks4_reply(socks_reply)
+        self.assertEqual(cd, const.RESPONSE_CD_REQUEST_GRANTED)
+        self.assertEqual(vn, const.SERVER_VN)
+
+        request_s.close()
 
 if __name__ == '__main__':
     unittest.main()

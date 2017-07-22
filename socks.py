@@ -24,27 +24,78 @@ class ClientRequest:
             self.invalid = True
             return
 
-        # Extract everything minus the userid from data
+        # Extract everything minus the userid (and potentially domain name to
+        # resolve) from data
         vn, cd, dst_port, dst_ip = struct.unpack('>BBHL', data[:8])
 
-        # Version number
+        # Version number (VN)
+        self.parse_vn(vn, data)
+
+        # SOCKS command code (CD)
+        self.parse_cd(cd, data)
+
+        # Destination port
+        self.parse_dst_port(dst_port, data)
+
+        # Destination IP / Domain name (if specified)
+        self.parse_ip(dst_ip, data)
+
+        # Userid
+        self.parse_userid(data)
+
+    def parse_vn(self, vn, data):
         if (vn != const.CLIENT_VN):
             self.invalid = True
 
-        # SOCKS command code (CD)
-        self.cd = cd
-        if (self.cd != const.REQUEST_CD_CONNECT and
-                self.cd != const.REQUEST_CD_BIND):
-            self.invalid = True
-
-        # Destination port
+    def parse_dst_port(self, dst_port, data):
         self.dst_port = dst_port
 
-        # Destination IP (Parse as a dotted quad string)
-        self.dst_ip = ipaddress.IPv4Address(dst_ip).exploded
+    def parse_cd(self, cd, data):
+        if (cd == const.REQUEST_CD_CONNECT or cd == const.REQUEST_CD_BIND):
+            self.cd = cd
+        else:
+            self.invalid = True
 
-        # UserId
-        self.userid = data[8:-1]  # Strip the null byte at the end
+    def parse_userid(self, data):
+        try:
+            index = data.index(b'\x00')
+            self.userid = data[8:index]
+        except ValueError:
+            self.invalid = True
+        except IndexError:
+            self.invalid = True
+
+    def parse_ip(self, dst_ip, data):
+        ip = ipaddress.IPv4Address(dst_ip)
+        o1, o2, o3, o4 = ip.packed
+
+        # Invalid ip address specifying that we must resolve the domain
+        # specified in data (As specified in SOCKS4a)
+        if (o1, o2, o3) == (0, 0, 0) and o4 != 0:
+            try:
+                # Variable length part of the request containing the userid
+                # and domain (8th byte onwards)
+                userid_and_domain = data[8:]
+
+                # Extract the domain to resolve
+                _, domain, _ = userid_and_domain.split(b'\x00')
+
+            except ValueError:
+                # Error parsing request
+                self.invalid = True
+                return
+
+            try:
+                resolved_ip = socket.gethostbyname(domain)
+            except socket.gaierror:
+                # Domain name not found
+                self.invalid = True
+                return
+
+            self.dst_ip = resolved_ip
+
+        else:
+            self.dst_ip = ip.exploded
 
     def isInvalid(self):
         return self.invalid
@@ -156,10 +207,6 @@ class SocksProxy:
                 s.close()
                 print('Caught KeyboardInterrupt, exiting')
                 sys.exit(0)
-            except Exception as e:
-                print(e)
-                s.close()
-                sys.exit(1)
 
     def _process_connect_request(self, client_request, client_conn):
         server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
