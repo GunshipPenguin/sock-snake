@@ -32,6 +32,7 @@ def start_mock_server(port, data):
 
 
 def build_socks4_ip_request(cd, dst_port, dst_ip):
+    '''Builds a SOCKS4 request for a given ip'''
     dst_ip_bytes = ipaddress.IPv4Address(dst_ip).packed
     dst_ip_raw = struct.unpack('>L', dst_ip_bytes)[0]
 
@@ -39,6 +40,7 @@ def build_socks4_ip_request(cd, dst_port, dst_ip):
 
 
 def build_socks4_dns_request(cd, dst_port, domain):
+    '''Build a SOCKS4 request for a given domain name'''
     # 0.0.0.1 = invalid IP specifying a dns lookup
     dst_ip, = struct.unpack('>L', b'\x00\x00\x00\x01')
 
@@ -65,7 +67,7 @@ class SocksProxyTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Start a SOCKS proxy for testing
-        proxy = socksnake.SocksProxy(const.PORT, const.BUFSIZE, const.BACKLOG)
+        proxy = socksnake.SocksProxy(const.PORT)
 
         proxy_server_thread = threading.Thread(target=proxy.start)
         proxy_server_thread.daemon = True

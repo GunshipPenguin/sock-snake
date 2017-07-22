@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import socket
 import threading
 import select
@@ -12,6 +11,10 @@ import const
 
 
 def build_socks_reply(cd, dst_port=0x0000, dst_ip='0.0.0.0'):
+    '''
+    Build a SOCKS4 reply with the specified reply code, destination port and
+    destination ip.
+    '''
     dst_ip_bytes = ipaddress.IPv4Address(dst_ip).packed
     dst_ip_raw, = struct.unpack('>L', dst_ip_bytes)
 
@@ -19,8 +22,10 @@ def build_socks_reply(cd, dst_port=0x0000, dst_ip='0.0.0.0'):
 
 
 class ClientRequest:
+    '''Represents a client SOCKS4 request'''
+
     def __init__(self, data):
-        '''Construct a new client request from the given binary data'''
+        '''Construct a new ClientRequeset from the given raw SOCKS request'''
         self.invalid = False
 
         # Client requests must be at least 9 bytes to hold all necessary data
@@ -28,48 +33,57 @@ class ClientRequest:
             self.invalid = True
             return
 
-        # Extract everything minus the userid (and potentially domain name to
-        # resolve) from data
-        vn, cd, dst_port, dst_ip = struct.unpack('>BBHL', data[:8])
-
         # Version number (VN)
-        self.parse_vn(vn, data)
+        self.parse_vn(data)
 
         # SOCKS command code (CD)
-        self.parse_cd(cd, data)
+        self.parse_cd(data)
 
         # Destination port
-        self.parse_dst_port(dst_port, data)
+        self.parse_dst_port(data)
 
         # Destination IP / Domain name (if specified)
-        self.parse_ip(dst_ip, data)
+        self.parse_ip(data)
 
         # Userid
         self.parse_userid(data)
 
-    def parse_vn(self, vn, data):
+    @classmethod
+    def parse_fixed(cls, data):
+        '''Parse and return the fixed-length part of a SOCKS request
+
+        Returns a tuple containing (vn, cd, dst_port, dst_ip) given the raw
+        socks request
+        '''
+        return struct.unpack('>BBHL', data[:8])
+
+    def parse_vn(self, data):
+        '''Parse and store the version number given the raw SOCKS request'''
+        vn, _, _, _ = ClientRequest.parse_fixed(data)
         if (vn != const.CLIENT_VN):
             self.invalid = True
 
-    def parse_dst_port(self, dst_port, data):
+    def parse_dst_port(self, data):
+        '''Parse and store the destination port given the raw SOCKS request'''
+        _, _, dst_port, _ = ClientRequest.parse_fixed(data)
         self.dst_port = dst_port
 
-    def parse_cd(self, cd, data):
+    def parse_cd(self, data):
+        '''Parse and store the request code given the raw SOCKS request'''
+        _, cd, _, _ = ClientRequest.parse_fixed(data)
         if (cd == const.REQUEST_CD_CONNECT or cd == const.REQUEST_CD_BIND):
             self.cd = cd
         else:
             self.invalid = True
 
-    def parse_userid(self, data):
-        try:
-            index = data.index(b'\x00')
-            self.userid = data[8:index]
-        except ValueError:
-            self.invalid = True
-        except IndexError:
-            self.invalid = True
+    def parse_ip(self, data):
+        '''Parse and store the destination ip given the raw SOCKS request
 
-    def parse_ip(self, dst_ip, data):
+        If the IP is of the form 0.0.0.(1-255), attempt to resolve the domain
+        name specified, then store the resolved ip as the destination ip.
+        '''
+        _, _, _, dst_ip = ClientRequest.parse_fixed(data)
+
         ip = ipaddress.IPv4Address(dst_ip)
         o1, o2, o3, o4 = ip.packed
 
@@ -101,21 +115,43 @@ class ClientRequest:
         else:
             self.dst_ip = ip.exploded
 
+    def parse_userid(self, data):
+        '''Parse and store the userid given the raw SOCKS request'''
+        try:
+            index = data.index(b'\x00')
+            self.userid = data[8:index]
+        except ValueError:
+            self.invalid = True
+        except IndexError:
+            self.invalid = True
+
     def isInvalid(self):
+        '''Returns true if this request is invalid, false otherwise'''
         return self.invalid
 
 
 class RelayThread(threading.Thread):
+    '''Thread object that relays traffic between two hosts'''
+
     def __init__(self, s1, s2):
+        '''Construct a new RelayThread to relay traffic between the 2 sockets
+        specified'''
         self._s1 = s1
         self._s2 = s2
         threading.Thread.__init__(self)
 
     def _close_sockets(self):
+        '''Close both sockets in this Relay Thread'''
         self._s1.close()
         self._s2.close()
 
     def run(self):
+        '''Start relaying traffic between the two sockets specified
+
+        Traffic is relayed until one socket is closed or encounters an error,
+        at which point both sockets will be closed and the thread will
+        terminate.
+        '''
         while True:
             ready, _, err = select.select(
                 [self._s1, self._s2], [], [self._s1, self._s2])
@@ -146,12 +182,17 @@ class RelayThread(threading.Thread):
 
 
 class BindThread(threading.Thread):
+    '''Thread object that sets up a SOCKS BIND request'''
+
     def __init__(self, client_request, client_conn):
+        '''Create a new BIND thread for the given ClientRequest and connection
+        to the client'''
         self._client_request = client_request
         self._client_conn = client_conn
         threading.Thread.__init__(self)
 
     def run(self):
+        '''Attempt a SOCKS bind operation and relay traffic if successful'''
         try:
             # Open a listening socket on an open port
             server_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -186,13 +227,17 @@ class BindThread(threading.Thread):
 
 
 class SocksProxy:
-    def __init__(self, port, bufsize, backlog):
+    '''A SOCKS4a Proxy'''
+
+    def __init__(self, port):
+        '''Create a new SOCKS4 proxy on the specified port'''
         self._host = '0.0.0.0'
         self._port = port
-        self._bufsize = bufsize
-        self._backlog = backlog
+        self._bufsize = const.BUFSIZE
+        self._backlog = const.BACKLOG
 
     def start(self):
+        '''Start listening for SOCKS connections, blocking'''
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self._host, self._port))
@@ -211,6 +256,7 @@ class SocksProxy:
                 sys.exit(0)
 
     def _process_connect_request(self, client_request, client_conn):
+        '''Process a SOCKS CONNECT request'''
         server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_conn.settimeout(const.SOCKS_TIMEOUT)
 
@@ -232,11 +278,13 @@ class SocksProxy:
         relay_thread.start()
 
     def _process_bind_request(self, client_request, client_conn):
+        '''Process a SOCKS BIND request'''
         bind_thread = BindThread(client_request, client_conn)
         bind_thread.daemon = True
         bind_thread.start()
 
     def _process_request(self, data, client_conn):
+        '''Process a general SOCKS request'''
         client_request = ClientRequest(data)
 
         # Handle invalid requests
@@ -270,5 +318,5 @@ if __name__ == '__main__':
 
     print('Listening on port', str(args.port))
 
-    proxy = SocksProxy(args.port, const.BUFSIZE, const.BACKLOG)
+    proxy = SocksProxy(args.port)
     proxy.start()
