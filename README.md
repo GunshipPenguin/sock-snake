@@ -1,3 +1,3 @@
-# Socks
+# Sock Snake
 
-Socks 4a proxy implementation in Python 3.
+A socks 4a proxy implementation in Python 3.

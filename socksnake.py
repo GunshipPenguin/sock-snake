@@ -254,7 +254,7 @@ class SocksProxy:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='SOCKS4a Proxy Implementation',
-        epilog='Homepage: https://github.com/GunshipPenguin/socks')
+        epilog='Homepage: https://github.com/GunshipPenguin/sock-snake')
 
     parser.add_argument(
         '--port',
