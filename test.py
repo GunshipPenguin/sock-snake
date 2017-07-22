@@ -37,6 +37,7 @@ def build_socks4_ip_request(cd, dst_port, dst_ip):
 
     return struct.pack('>BBHLB', 4, cd, dst_port, dst_ip_raw, 0x00)
 
+
 def build_socks4_dns_request(cd, dst_port, domain):
     # 0.0.0.1 = invalid IP specifying a dns lookup
     dst_ip, = struct.unpack('>L', b'\x00\x00\x00\x01')
@@ -183,6 +184,7 @@ class SocksProxyTestCase(unittest.TestCase):
         self.assertEqual(vn, const.SERVER_VN)
 
         request_s.close()
+
 
 if __name__ == '__main__':
     unittest.main()
