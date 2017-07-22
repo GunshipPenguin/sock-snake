@@ -4,6 +4,8 @@ import select
 import sys
 import struct
 import ipaddress
+import argparse
+
 import const
 
 
@@ -189,8 +191,6 @@ class SocksProxy:
         self._backlog = backlog
 
     def start(self):
-        print('Listening on ' + self._host + ':' + str(self._port))
-
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self._host, self._port))
@@ -252,5 +252,20 @@ class SocksProxy:
 
 
 if __name__ == '__main__':
-    proxy = SocksProxy(const.PORT, const.BUFSIZE, const.BACKLOG)
+    parser = argparse.ArgumentParser(
+        description='SOCKS4a Proxy Implementation',
+        epilog='Homepage: https://github.com/GunshipPenguin/socks')
+
+    parser.add_argument(
+        '--port',
+        type=int,
+        help='port to listen for incoming SOCKS requests on',
+        action='store',
+        default=const.PORT)
+
+    args = parser.parse_args()
+
+    print('Listening on port', str(args.port))
+
+    proxy = SocksProxy(args.port, const.BUFSIZE, const.BACKLOG)
     proxy.start()

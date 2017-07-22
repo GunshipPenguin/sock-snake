@@ -1,4 +1,4 @@
-# TCP port to listen on for SOCKS4 connections
+# TCP port to listen on for SOCKS4 connections by default
 PORT = 1080
 
 # Buffer size to use when calling socket.recv()
