@@ -2,6 +2,9 @@
 
 A SOCKS4a proxy implementation in Python 3.
 
+The SOCKS4 and SOCKS4a specifications can be found in `socks4.protocol` and
+`socks4a.protocol` respectively.
+
 ## Usage
 
 ```
