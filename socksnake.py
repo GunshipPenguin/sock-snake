@@ -207,7 +207,7 @@ class BindThread(threading.Thread):
 
             # Wait for the application server to accept the connection
             server_conn, addr = server_s.accept()
-        except BaseException:
+        except:
             # Something went wrong, inform the client and return
             self._client_conn.sendall(
                 build_socks_reply(
